@@ -1,0 +1,14 @@
+{
+  "name": "ytd-api-yt-dlp-exec",
+  "version": "1.0.0",
+  "description": "API para descargar videos de YouTube usando yt-dlp-exec",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "Carlos Guadalupe López Trejo",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}

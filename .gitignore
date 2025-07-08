@@ -1,0 +1,9 @@
+# Dependencias de Node
+node_modules
+
+# Archivos de log
+*.log
+npm-debug.log*
+
+# Archivos de entorno (si los usas en el futuro)
+.env

@@ -106,6 +106,7 @@ app.get('/download', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Servidor iniciado y escuchando en el puerto ${PORT}`);
 });*/
+
 const express = require('express');
 const cors = require('cors');
 const { spawn } = require('child_process');
@@ -121,8 +122,10 @@ app.use(cors());
 
 const getYtDlpMetadata = (videoUrl) => {
   return new Promise((resolve, reject) => {
+    // Usamos '--cookies-from-browser' que solo lee y no intenta escribir.
+    // Le decimos que el navegador es 'firefox' (o 'chrome', etc.) y que la ruta del archivo es nuestro secreto.
     const args = [
-      '--cookies', COOKIE_FILE_PATH,
+      '--cookies-from-browser', 'firefox', COOKIE_FILE_PATH,
       videoUrl,
       '--dump-single-json',
       '--no-warnings',
@@ -130,9 +133,9 @@ const getYtDlpMetadata = (videoUrl) => {
 
     // Verificamos si el archivo de cookies existe en el entorno de Render
     if (!fs.existsSync(COOKIE_FILE_PATH)) {
-      console.log('Archivo de cookies no encontrado, procediendo sin él.');
+      console.log('Archivo de cookies no encontrado, procediendo sin él (entorno local).');
       // Si no existe, quitamos los argumentos de las cookies
-      args.splice(0, 2); 
+      args.splice(0, 3); 
     }
 
     const process = spawn('yt-dlp', args);
@@ -178,14 +181,14 @@ app.get('/download', async (req, res) => {
     res.header('Content-Type', 'video/mp4');
 
     const downloadArgs = [
-      '--cookies', COOKIE_FILE_PATH,
+      '--cookies-from-browser', 'firefox', COOKIE_FILE_PATH,
       videoUrl,
       '-f', 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best',
       '-o', '-', 
     ];
 
     if (!fs.existsSync(COOKIE_FILE_PATH)) {
-      downloadArgs.splice(0, 2);
+      downloadArgs.splice(0, 3);
     }
     
     const downloadProcess = spawn('yt-dlp', downloadArgs);
@@ -194,7 +197,6 @@ app.get('/download', async (req, res) => {
 
     downloadProcess.stderr.on('data', (data) => {
         const logLine = data.toString();
-        // Evitamos mostrar el progreso de ffmpeg como un error para limpiar la consola.
         if (!logLine.startsWith('frame=')) {
           console.error(`yt-dlp stderr: ${logLine.trim()}`);
         }
@@ -230,5 +232,6 @@ app.get('/download', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Servidor iniciado y escuchando en el puerto ${PORT}`);
 });
+
 //http://localhost:3000/download?url=https://youtu.be/ilw-qmqZ5zY?si=ueBMauQefJYNxOD1
 //https://youtube-downloader-api-vpba.onrender.com/download?url=https://youtu.be/eG-5eHMLJZk?si=xdje17HT-3TNL97L

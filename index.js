@@ -110,33 +110,34 @@ app.listen(PORT, () => {
 const express = require('express');
 const cors = require('cors');
 const { spawn } = require('child_process');
-const fs = require('fs'); // Importamos el módulo de sistema de archivos
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// La ruta estándar donde Render pone los archivos secretos
 const COOKIE_FILE_PATH = '/etc/secrets/cookies.txt';
 
 app.use(cors());
 
+// Función auxiliar para construir los argumentos de yt-dlp
+const buildYtDlpArgs = (baseArgs) => {
+  const finalArgs = [...baseArgs];
+  if (fs.existsSync(COOKIE_FILE_PATH)) {
+    console.log('Usando archivo de cookies.');
+    finalArgs.unshift('--cookies', COOKIE_FILE_PATH);
+  } else {
+    console.log('Archivo de cookies no encontrado, procediendo sin él (entorno local).');
+  }
+  return finalArgs;
+};
+
 const getYtDlpMetadata = (videoUrl) => {
   return new Promise((resolve, reject) => {
-    // Usamos '--cookies-from-browser' que solo lee y no intenta escribir.
-    // Le decimos que el navegador es 'firefox' (o 'chrome', etc.) y que la ruta del archivo es nuestro secreto.
-    const args = [
-      '--cookies-from-browser', 'firefox', COOKIE_FILE_PATH,
+    const args = buildYtDlpArgs([
       videoUrl,
       '--dump-single-json',
       '--no-warnings',
-    ];
-
-    // Verificamos si el archivo de cookies existe en el entorno de Render
-    if (!fs.existsSync(COOKIE_FILE_PATH)) {
-      console.log('Archivo de cookies no encontrado, procediendo sin él (entorno local).');
-      // Si no existe, quitamos los argumentos de las cookies
-      args.splice(0, 3); 
-    }
+    ]);
 
     const process = spawn('yt-dlp', args);
 
@@ -151,7 +152,7 @@ const getYtDlpMetadata = (videoUrl) => {
         try {
           resolve(JSON.parse(stdout));
         } catch (e) {
-          reject(new Error(`Error al parsear JSON de yt-dlp: ${e.message}`));
+          reject(new Error(`Error al parsear JSON de yt-dlp: ${e.message}\nJSON recibido: ${stdout}`));
         }
       } else {
         reject(new Error(`yt-dlp para metadatos falló con código ${code}:\n${stderr}`));
@@ -180,16 +181,11 @@ app.get('/download', async (req, res) => {
     res.header('Content-Disposition', `attachment; filename="${filename}"`);
     res.header('Content-Type', 'video/mp4');
 
-    const downloadArgs = [
-      '--cookies-from-browser', 'firefox', COOKIE_FILE_PATH,
+    const downloadArgs = buildYtDlpArgs([
       videoUrl,
       '-f', 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best',
       '-o', '-', 
-    ];
-
-    if (!fs.existsSync(COOKIE_FILE_PATH)) {
-      downloadArgs.splice(0, 3);
-    }
+    ]);
     
     const downloadProcess = spawn('yt-dlp', downloadArgs);
 

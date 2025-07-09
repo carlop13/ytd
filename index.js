@@ -115,15 +115,17 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const COOKIE_FILE_PATH = '/etc/secrets/cookies.txt';
+// Apuntamos a la nueva ruta donde el archivo será escribible.
+const COOKIE_FILE_PATH = '/tmp/cookies.txt';
 
 app.use(cors());
 
-// Función auxiliar para construir los argumentos de yt-dlp
 const buildYtDlpArgs = (baseArgs) => {
   const finalArgs = [...baseArgs];
+  // Ahora el archivo de cookies existirá en /tmp si fue copiado por el entrypoint.
   if (fs.existsSync(COOKIE_FILE_PATH)) {
-    console.log('Usando archivo de cookies.');
+    console.log(`Usando archivo de cookies desde: ${COOKIE_FILE_PATH}`);
+    // Usamos la bandera --cookies, que es la correcta para archivos de texto.
     finalArgs.unshift('--cookies', COOKIE_FILE_PATH);
   } else {
     console.log('Archivo de cookies no encontrado, procediendo sin él (entorno local).');

@@ -21,8 +21,18 @@ RUN npm install
 # Paso 6: Copiar el resto del código de nuestra aplicación
 COPY . .
 
+# --- PASO NUEVO Y CLAVE ---
+# Paso 6.5: Crear un script de entrada que copie el archivo de cookies a un lugar escribible
+# y luego ejecute la aplicación.
+RUN echo '#!/bin/sh' > /usr/src/app/entrypoint.sh && \
+    echo 'if [ -f /etc/secrets/cookies.txt ]; then' >> /usr/src/app/entrypoint.sh && \
+    echo '  cp /etc/secrets/cookies.txt /tmp/cookies.txt' >> /usr/src/app/entrypoint.sh && \
+    echo 'fi' >> /usr/src/app/entrypoint.sh && \
+    echo 'exec node index.js' >> /usr/src/app/entrypoint.sh && \
+    chmod +x /usr/src/app/entrypoint.sh
+
 # Paso 7: Exponer el puerto que usa nuestra app
 EXPOSE 3000
 
-# Paso 8: El comando para iniciar la aplicación cuando el contenedor arranque
-CMD [ "node", "index.js" ]
+# Paso 8: El comando para iniciar la aplicación ahora es nuestro script de entrada
+CMD [ "/usr/src/app/entrypoint.sh" ]

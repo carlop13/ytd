@@ -110,32 +110,34 @@ app.listen(PORT, () => {
 const express = require('express');
 const cors = require('cors');
 const { spawn } = require('child_process');
-const path = require('path');
 const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const COOKIE_FILE_PATH = '/tmp/cookies.txt';
+
 app.use(cors());
 
-// --- AUTENTICACIÓN OAUTH ---
-// Esta es la ruta donde guardaremos el token de autenticación de Google.
-// El directorio /tmp/ es escribible en nuestro contenedor.
-const GOOGLE_AUTH_TOKEN_PATH = '/tmp/google_auth_token.json';
+const buildYtDlpArgs = (baseArgs) => {
+  const finalArgs = [...baseArgs];
+  if (fs.existsSync(COOKIE_FILE_PATH)) {
+    console.log(`Usando archivo de cookies desde: ${COOKIE_FILE_PATH}`);
+    finalArgs.unshift('--cookies', COOKIE_FILE_PATH);
+  } else {
+    console.log('Archivo de cookies no encontrado, procediendo sin él.');
+  }
+  return finalArgs;
+};
 
-// Función para obtener metadatos.
 const getYtDlpMetadata = (videoUrl) => {
   return new Promise((resolve, reject) => {
-    const args = [
+    const args = buildYtDlpArgs([
       videoUrl,
-      // Le decimos a yt-dlp que use el token de autenticación si existe.
-      '--google-auth', GOOGLE_AUTH_TOKEN_PATH,
       '--dump-single-json',
       '--no-warnings',
-    ];
-
+    ]);
     const process = spawn('yt-dlp', args);
-
     let stdout = '';
     let stderr = '';
     process.stdout.on('data', (data) => (stdout += data.toString()));
@@ -145,7 +147,7 @@ const getYtDlpMetadata = (videoUrl) => {
         try {
           resolve(JSON.parse(stdout));
         } catch (e) {
-          reject(new Error(`Error al parsear JSON: ${e.message}`));
+          reject(new Error(`Error al parsear JSON: ${e.message}\nJSON recibido: ${stdout}`));
         }
       } else {
         reject(new Error(`yt-dlp (metadatos) falló con código ${code}:\n${stderr}`));
@@ -155,42 +157,11 @@ const getYtDlpMetadata = (videoUrl) => {
   });
 };
 
-// Ruta para iniciar el proceso de autenticación.
-// SOLO NECESITAS LLAMAR A ESTA RUTA UNA VEZ.
-app.get('/auth', (req, res) => {
-  console.log('Iniciando proceso de autenticación de Google...');
-  
-  const authProcess = spawn('yt-dlp', ['--google-auth', GOOGLE_AUTH_TOKEN_PATH]);
-
-  let responseSent = false;
-
-  authProcess.stdout.on('data', (data) => {
-    const output = data.toString();
-    console.log(`yt-dlp auth stdout: ${output}`);
-    // yt-dlp pedirá un código de dispositivo.
-    if (output.includes('go to https://www.google.com/device') && !responseSent) {
-      res.send(output); // Envía las instrucciones al navegador/Postman.
-      responseSent = true;
-    }
-  });
-
-  authProcess.stderr.on('data', (data) => {
-    console.error(`yt-dlp auth stderr: ${data}`);
-  });
-
-  authProcess.on('close', (code) => {
-    console.log(`Proceso de autenticación finalizado con código ${code}.`);
-    if (code === 0 && !responseSent) {
-      res.send('Autenticación completada con éxito. El token ha sido guardado en el servidor.');
-    } else if (code !== 0 && !responseSent) {
-      res.status(500).send('Falló el proceso de autenticación.');
-    }
-  });
-});
-
-
 app.get('/download', async (req, res) => {
   let videoUrl = req.query.url;
+  // --- NUEVO: Leer el parámetro de calidad ---
+  const quality = req.query.quality || '720'; // Por defecto, 720p si no se especifica
+
   if (!videoUrl) return res.status(400).json({ error: 'Falta la URL del video' });
 
   try {
@@ -206,27 +177,29 @@ app.get('/download', async (req, res) => {
     console.log('Obteniendo metadatos...');
     const metadata = await getYtDlpMetadata(videoUrl);
     const videoTitle = metadata.title.replace(/[^a-z0-9_.-]/gi, '-').toLowerCase();
-    const filename = `${videoTitle}.mp4`;
+    
+    // Añadimos la calidad al nombre del archivo para diferenciar
+    const filename = `${videoTitle}-${quality}p.mp4`; 
     console.log(`Metadatos OK. Iniciando descarga: ${filename}`);
+
     res.header('Content-Disposition', `attachment; filename="${filename}"`);
     res.header('Content-Type', 'video/mp4');
 
-    const downloadArgs = [
-        videoUrl,
-        '--google-auth', GOOGLE_AUTH_TOKEN_PATH,
-        '-f', 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        '-o', '-',
-    ];
+    // --- NUEVO: Selección de formato dinámica ---
+    // Creamos un string de formato basado en la calidad solicitada.
+    const formatString = `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4][height<=${quality}]/best`;
+    console.log(`Usando selección de formato: ${formatString}`);
 
+    const downloadArgs = buildYtDlpArgs([
+      videoUrl,
+      '-f', formatString,
+      '-o', '-', 
+    ]);
+    
     const downloadProcess = spawn('yt-dlp', downloadArgs);
     downloadProcess.stdout.pipe(res);
-    downloadProcess.stderr.on('data', (data) => {
-        const logLine = data.toString();
-        if (!logLine.startsWith('frame=')) {
-          console.error(`yt-dlp stderr: ${logLine.trim()}`);
-        }
-    });
-    downloadProcess.on('error', (err) => console.error('Error en el proceso de descarga:', err));
+    downloadProcess.stderr.on('data', (data) => console.error(`yt-dlp stderr: ${data.toString().trim()}`));
+    downloadProcess.on('error', (err) => console.error('Error en descarga:', err));
     downloadProcess.on('close', (code) => console.log(`Descarga finalizada con código ${code}.`));
     req.on('close', () => downloadProcess.kill());
 
